@@ -1,0 +1,16 @@
+#index:
+#    path: /
+#    controller: App\Controller\DefaultController::index
+
+login:
+  path: /login
+  controller: App\Controller\SecurityController::form
+
+home:
+  path: /
+  controller: App\Controller\SecurityController::home
+
+profile:
+  path: /profile
+  controller: App\Controller\SecurityController::profile
+
