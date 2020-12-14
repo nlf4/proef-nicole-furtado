@@ -12,7 +12,6 @@ use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Component\HttpClient\CurlHttpClient;
 use Symfony\Contracts\HttpClient\Exception\ClientExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
@@ -30,6 +29,11 @@ class SecurityController extends AbstractController
     private $user_email;
     private $token;
     private $show_modal;
+    private $api_url = "https://apidev.questi.com/2.0";
+    private $grant_type = 'password';
+    private $scope = 'sollicitatie-scope';
+    private $client_id = 'q-sollicitatie-nifu';
+    private $client_secret_pre = '5Wlu8Fq3wSBxIPa4vB9AOGPCyQ8QwVw0w5MjFzTXj8pdeDWziG';
 
     /**
      * @Route("/", name="home", methods={"GET"})
@@ -52,9 +56,8 @@ class SecurityController extends AbstractController
 
     public function form(Request $request, EntityManagerInterface $em): Response
     {
-
-        /* Build form *////////////
-        $defaultData = ['email' => 'jorn200fr@questi.com', 'password' => 'LR9K&rAr!S'];
+        /* Build login form *////////////
+        $defaultData = ['email' => 'jorn200fr@questi.com'];
         $form = $this->createFormBuilder($defaultData)
             ->add('email', EmailType::class)
             ->add('password', PasswordType::class)
@@ -71,54 +74,47 @@ class SecurityController extends AbstractController
             $this->password = $data['password'];
 
             /* Client authentication *///////////////////////////
-            $client_id = $this->getParameter('client_id');
-            $client_secret_pre = '5Wlu8Fq3wSBxIPa4vB9AOGPCyQ8QwVw0w5MjFzTXj8pdeDWziG';
-            /* calculate checksum */
-            $date = date('Ymd');
-            $client_secret = sha1(sha1($client_id.'_'.$client_secret_pre).'_'.$date);
-
             $client = HttpClient::create();
 
-            $response = $client->request('POST', 'https://apidev.questi.com/2.0/token/?', [
+            $response = $client->request('POST', $this->api_url.'/token/?', [
                 'body' => [
-                    'emailaddr' => 'jorn200fr@questi.com',
-                    'passwrd' => 'LR9K&rAr!S',
-                    'grant_type' => 'password',
-                    'scope' => 'sollicitatie-scope',
+                    'emailaddr' => $this->email,
+                    'passwrd' => $this->password,
+                    'grant_type' => $this->grant_type,
+                    'scope' => $this->scope,
                 ],
                 'headers' => [
                     'Content-Type' => 'application/x-www-form-urlencoded',
-                    'Client-Id' => $client_id,
-                    'Client-Secret' => $client_secret
+                    'Client-Id' => $this->client_id,
+                    'Client-Secret' => $this->calculateChecksum(),
                 ]
             ]);
 
             $this->result = json_decode($response->getContent());
+            /* Create new User */
             $user = new User();
             $user->setAccessToken($this->result->access_token);
-            var_dump($this->result->access_token);
-            var_dump($user);
+//            var_dump($this->result->access_token);
+//            var_dump($user);
             $this->token = $this->result->access_token;
 
 
             /*  User authentication  *//////////////////////////
-
             $client2 = HttpClient::create([
                 'auth_bearer' => $this->result->access_token,
             ]);
-
-            $response2 = $client2->request('GET', 'https://apidev.questi.com/2.0/user', [
+            $response2 = $client2->request('GET', $this->api_url.'/user', [
                 'headers' => [
                     'Content-Type' => 'application/x-www-form-urlencoded',
-                    'Client-Id' => $client_id,
-                    'Client-Secret' => $client_secret,
+                    'Client-Id' => $this->client_id,
+                    'Client-Secret' => $this->calculateChecksum(),
                 ]
             ]);
 
             $userData = json_decode($response2->getContent());
             var_dump($userData->result->signed_agreement);
 
-            /* Save to user object *///////////
+            /* Save to User object *///////////
             $user->setName($userData->result->user_name)
                 ->setFirstname($userData->result->user_firstname)
                 ->setLanguage($userData->result->user_language)
@@ -147,24 +143,19 @@ class SecurityController extends AbstractController
     public function profile(UserRepository $userRepository)
     {
         /* Get user */
-        $user = $userRepository->findOneBy(['id' => 27]);
+        $user = $userRepository->findOneBy(['email' => $this->email]);
 
         /* Get user agreement content if not signed *//////////////////
-        if($user->getSignedAgreement() == 1) {
-            $client_id = 'q-sollicitatie-nifu';
-            $client_secret_pre = '5Wlu8Fq3wSBxIPa4vB9AOGPCyQ8QwVw0w5MjFzTXj8pdeDWziG';
-            /* calculate checksum */
-            $date = date('Ymd');
-            $client_secret = sha1(sha1($client_id . '_' . $client_secret_pre) . '_' . $date);
+        if($user->getSignedAgreement() == 0) {
 
             $client = HttpClient::create([
                 'auth_bearer' => $user->getAccessToken()
             ]);
-            $response = $client->request('GET', 'https://apidev.questi.com/2.0/user/eul', [
+            $response = $client->request('GET', $this->api_url.'/user/eul', [
                 'headers' => [
                     'Content-Type' => 'application/x-www-form-urlencoded',
-                    'Client-Id' => $client_id,
-                    'Client-Secret' => $client_secret,
+                    'Client-Id' => $this->client_id,
+                    'Client-Secret' => $this->calculateChecksum(),
                 ]
             ]);
 
@@ -201,32 +192,23 @@ class SecurityController extends AbstractController
         if ($form->isSubmitted()) {
 
             /* Get user */
-            $user = $userRepository->findOneBy(['id' => 27]);
-            $client_id = 'q-sollicitatie-nifu';
-            $client_secret_pre = '5Wlu8Fq3wSBxIPa4vB9AOGPCyQ8QwVw0w5MjFzTXj8pdeDWziG';
-            /* calculate checksum */
-            $date = date('Ymd');
-            $client_secret = sha1(sha1($client_id . '_' . $client_secret_pre) . '_' . $date);
+            $user = $userRepository->findOneBy(['email' => $this->email]);
 
             /* Update user data *//////////
             $client = HttpClient::create([
                 'auth_bearer' => $user->getAccessToken()
             ]);
-            $response = $client->request('PUT', 'https://apidev.questi.com/2.0/user/eul', [
+            $response = $client->request('PUT', $this->api_url.'/user/eul', [
                 'body' => [
                     'signed_eul' => true,
                 ],
                 'headers' => [
                     'Content-Type' => 'application/x-www-form-urlencoded',
-                    'Client-Id' => $client_id,
-                    'Client-Secret' => $client_secret,
+                    'Client-Id' => $this->client_id,
+                    'Client-Secret' => $this->calculateChecksum(),
                 ]
             ]);
-
             $data = json_decode($response->getContent());
-
-
-
         }
 
         return $this->render('profile.html.twig', [
@@ -238,6 +220,12 @@ class SecurityController extends AbstractController
 //            'user' => $user,
 //            'show-modal' => false,
 //        ]);
+    }
 
+    public function calculateChecksum()
+    {
+        $date = date('Ymd');
+        $client_secret = sha1(sha1($this->client_id . '_' . $this->client_secret_pre) . '_' . $date);
+        return $client_secret;
     }
 }

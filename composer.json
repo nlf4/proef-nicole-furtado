@@ -17,6 +17,7 @@
         "guzzlehttp/guzzle": "7.0",
         "kamermans/guzzle-oauth2-subscriber": "^1.0",
         "league/oauth2-server": "^8.2",
+        "paragonie/sodium_compat": "^1.14",
         "symfony/asset": "5.2.*",
         "symfony/console": "5.2.*",
         "symfony/dotenv": "5.2.*",
