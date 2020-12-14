@@ -36,7 +36,6 @@ class SecurityController extends AbstractController
     private $client_id = 'q-sollicitatie-nifu';
     private $client_secret_pre = '5Wlu8Fq3wSBxIPa4vB9AOGPCyQ8QwVw0w5MjFzTXj8pdeDWziG';
     private $eul_content;
-    private $current_user_id;
 
     /**
      * @Route("/", name="home", methods={"GET"})
@@ -51,16 +50,11 @@ class SecurityController extends AbstractController
      * @Route("/login", name="login")
      * @param Request $request
      * @return Response
-     * @throws ClientExceptionInterface
-     * @throws RedirectionExceptionInterface
-     * @throws ServerExceptionInterface
-     * @throws TransportExceptionInterface
      */
-
     public function form(Request $request, EntityManagerInterface $em, SessionInterface $session): Response
     {
         /* Build login form *////////////
-        $defaultData = ['email' => 'jaak.willems@questi.be', 'password' => 'LR9K&rAr!S'];
+        $defaultData = [];
         $form = $this->createFormBuilder($defaultData)
             ->add('email', EmailType::class)
             ->add('password', PasswordType::class)
@@ -117,7 +111,6 @@ class SecurityController extends AbstractController
             $userData = json_decode($response2->getContent());
             var_dump($userData->result->signed_agreement);
 
-
             /* Save to User object *///////////
             $user->setName($userData->result->user_name)
                 ->setFirstname($userData->result->user_firstname)
@@ -129,9 +122,7 @@ class SecurityController extends AbstractController
             /* Persist to database *///////////
             $em->persist($user);
             $em->flush();
-            $this->current_user_id = $user->getId();
             $session->set('current_user_id', $user->getId());
-
 
             return $this->redirectToRoute('profile');
             }
@@ -144,6 +135,10 @@ class SecurityController extends AbstractController
 
     /**
      * @Route("/profile", name="profile")
+     * @param Request $request
+     * @param UserRepository $userRepository
+     * @param SessionInterface $session
+     * @return Response
      */
     public function profile(Request $request, UserRepository $userRepository, SessionInterface $session)
     {
@@ -152,7 +147,7 @@ class SecurityController extends AbstractController
         $user = $userRepository->findOneBy(['id' => $id]);
 //        dd($user);
         /* Get user agreement content if not signed *//////////////////
-        if($user->getSignedAgreement() == 1) {
+        if($user->getSignedAgreement() == 0) {
 
             $client = HttpClient::create([
                 'auth_bearer' => $user->getAccessToken()
@@ -167,7 +162,7 @@ class SecurityController extends AbstractController
 
             $eulData = json_decode($response->getContent());
             $eul_status = $eulData->status;
-//            $this->eul_content = $eulData->result->eul_content;
+            $session->set('eul_content', $eulData->result->eul_content);
 //            dd($eulData);
 
             if ($eul_status === "success") {
@@ -180,9 +175,7 @@ class SecurityController extends AbstractController
         $eulForm = $this->createFormBuilder($defaultData)
             ->add('send', SubmitType::class, ['label' => 'Akkoord'])
             ->getForm();
-
         $eulForm->handleRequest($request);
-
 
         /* render template */
         $this->renderModal($request);
@@ -190,9 +183,9 @@ class SecurityController extends AbstractController
             'eul_form' => $eulForm->createView(),
             'user' => $user,
             'modal' => $this->show_modal,
-            'agreement_text' => $this->eul_content,
+//            'agreement_text' => 'Lorem ipsum dolor sit amet, consectetur adipiscing elit',
+            'agreement_text' => $session->get('eul_content'),
         ]);
-
     }
 
     /**
@@ -220,10 +213,15 @@ class SecurityController extends AbstractController
                 ]
            ]);
             $data = json_decode($response->getContent());
+//            dd($data->status);
 
-            /* if modal submit is successful, load profile *///////////////////
+            /* if eul submit is successful, re-load profile *///////////////////
             if ($data->status === "success") {
-                return $this->redirectToRoute('profile');
+//                return $this->redirectToRoute('profile');
+                return $this->render('profile.html.twig', [
+                    'user' => $user,
+                    'modal' => false,
+                ]);
             }
     }
 
