@@ -17,6 +17,7 @@ use Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface;
 use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\HttpFoundation\Session\SessionInterface;
 
 
 class SecurityController extends AbstractController
@@ -28,12 +29,14 @@ class SecurityController extends AbstractController
     private $signed_agreement;
     private $user_email;
     private $token;
-    private $show_modal;
+    private $show_modal = false;
     private $api_url = "https://apidev.questi.com/2.0";
     private $grant_type = 'password';
     private $scope = 'sollicitatie-scope';
     private $client_id = 'q-sollicitatie-nifu';
     private $client_secret_pre = '5Wlu8Fq3wSBxIPa4vB9AOGPCyQ8QwVw0w5MjFzTXj8pdeDWziG';
+    private $eul_content;
+    private $current_user_id;
 
     /**
      * @Route("/", name="home", methods={"GET"})
@@ -54,10 +57,10 @@ class SecurityController extends AbstractController
      * @throws TransportExceptionInterface
      */
 
-    public function form(Request $request, EntityManagerInterface $em): Response
+    public function form(Request $request, EntityManagerInterface $em, SessionInterface $session): Response
     {
         /* Build login form *////////////
-        $defaultData = ['email' => 'jorn200fr@questi.com'];
+        $defaultData = ['email' => 'jaak.willems@questi.be', 'password' => 'LR9K&rAr!S'];
         $form = $this->createFormBuilder($defaultData)
             ->add('email', EmailType::class)
             ->add('password', PasswordType::class)
@@ -114,6 +117,7 @@ class SecurityController extends AbstractController
             $userData = json_decode($response2->getContent());
             var_dump($userData->result->signed_agreement);
 
+
             /* Save to User object *///////////
             $user->setName($userData->result->user_name)
                 ->setFirstname($userData->result->user_firstname)
@@ -125,10 +129,11 @@ class SecurityController extends AbstractController
             /* Persist to database *///////////
             $em->persist($user);
             $em->flush();
-            var_dump($user);
+            $this->current_user_id = $user->getId();
+            $session->set('current_user_id', $user->getId());
+
 
             return $this->redirectToRoute('profile');
-
             }
 
         return $this->render('security/new.html.twig', [
@@ -140,13 +145,14 @@ class SecurityController extends AbstractController
     /**
      * @Route("/profile", name="profile")
      */
-    public function profile(UserRepository $userRepository)
+    public function profile(Request $request, UserRepository $userRepository, SessionInterface $session)
     {
         /* Get user */
-        $user = $userRepository->findOneBy(['email' => $this->email]);
-
+        $id = $session->get('current_user_id');
+        $user = $userRepository->findOneBy(['id' => $id]);
+//        dd($user);
         /* Get user agreement content if not signed *//////////////////
-        if($user->getSignedAgreement() == 0) {
+        if($user->getSignedAgreement() == 1) {
 
             $client = HttpClient::create([
                 'auth_bearer' => $user->getAccessToken()
@@ -160,17 +166,31 @@ class SecurityController extends AbstractController
             ]);
 
             $eulData = json_decode($response->getContent());
-//            var_dump($eulData->result["eul_content"]);
-            $html = "This is a sample user agreement text.";
-            if (isset($html) && $html !== "") {
+            $eul_status = $eulData->status;
+//            $this->eul_content = $eulData->result->eul_content;
+//            dd($eulData);
+
+            if ($eul_status === "success") {
                 $this->show_modal = true;
             }
         }
 
+        /* Build eul_sign form *////////////
+        $defaultData = [];
+        $eulForm = $this->createFormBuilder($defaultData)
+            ->add('send', SubmitType::class, ['label' => 'Akkoord'])
+            ->getForm();
+
+        $eulForm->handleRequest($request);
+
+
         /* render template */
+        $this->renderModal($request);
         return $this->render('profile.html.twig', [
+            'eul_form' => $eulForm->createView(),
             'user' => $user,
-            'show-modal' => true,
+            'modal' => $this->show_modal,
+            'agreement_text' => $this->eul_content,
         ]);
 
     }
@@ -178,27 +198,18 @@ class SecurityController extends AbstractController
     /**
      * @Route("/eul_submit", name="eul_submit", methods={"POST, PUT"})
      */
-    public function eulSubmit(Request $request, EntityManagerInterface $em, UserRepository $userRepository)
+    public function eulSubmit(Request $request, EntityManagerInterface $em, UserRepository $userRepository, SessionInterface $session)
     {
-        /* Build form *////////////
-        $defaultData = [];
-        $form = $this->createFormBuilder($defaultData)
-            ->add('send', SubmitType::class)
-            ->getForm();
-
-        $form->handleRequest($request);
-
         /* Handle submit *///////////////
-        if ($form->isSubmitted()) {
-
             /* Get user */
-            $user = $userRepository->findOneBy(['email' => $this->email]);
+            $id = $session->get('current_user_id');
+            $user = $userRepository->findOneBy(['id' => $id]);
 
-            /* Update user data *//////////
+           /* Update user data *//////////
             $client = HttpClient::create([
                 'auth_bearer' => $user->getAccessToken()
             ]);
-            $response = $client->request('PUT', $this->api_url.'/user/eul', [
+           $response = $client->request('PUT', $this->api_url.'/user/eul', [
                 'body' => [
                     'signed_eul' => true,
                 ],
@@ -207,25 +218,39 @@ class SecurityController extends AbstractController
                     'Client-Id' => $this->client_id,
                     'Client-Secret' => $this->calculateChecksum(),
                 ]
-            ]);
+           ]);
             $data = json_decode($response->getContent());
-        }
 
-        return $this->render('profile.html.twig', [
-            'eul_form' => $form->createView(),
-        ]);
-
-        /* render template */
-//        return $this->render('profile.html.twig', [
-//            'user' => $user,
-//            'show-modal' => false,
-//        ]);
+            /* if modal submit is successful, load profile *///////////////////
+            if ($data->status === "success") {
+                return $this->redirectToRoute('profile');
+            }
     }
+
 
     public function calculateChecksum()
     {
         $date = date('Ymd');
         $client_secret = sha1(sha1($this->client_id . '_' . $this->client_secret_pre) . '_' . $date);
         return $client_secret;
+    }
+
+    public function renderModal(Request $request)
+    {
+        /* Build eul_sign form *////////////
+        $defaultData = [];
+        $eulForm = $this->createFormBuilder($defaultData)
+            ->add('send', SubmitType::class, ['label' => 'Akkoord'])
+            ->getForm();
+
+        $eulForm->handleRequest($request);
+
+        return $this->render('modal.html.twig', [
+            'eul_form' => $eulForm->createView(),
+            'modal' => $this->show_modal,
+            'agreement_text' => $this->eul_content,
+//            'user' => $user,
+        ]);
+
     }
 }

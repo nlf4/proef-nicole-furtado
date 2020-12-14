@@ -327,12 +327,23 @@ label {
     cursor: pointer;
 }
 
+#back-link{
+    padding: 12px;
+}
+
 .modal {
-    width: 400px;
+    width: 800px;
+    height: 1400px;
     display: block;
-    position: fixed;
-    top: 50%;
-    left: 50%;
+    position: relative;
+    top: 0;
+    left: 40%;
+    overflow: auto;
+    z-index:1050;
+}
+
+.modal-dialog{
+    width: 1000px;
 }
 
 

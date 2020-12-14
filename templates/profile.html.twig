@@ -14,8 +14,9 @@
 
 {% block content_body %}
 
-
-{#{% include 'modal.html.twig' %}#}
+    {% if modal %}
+        {% include 'modal.html.twig' %}
+    {% endif %}
 
         <h2>Welkom {{ user.firstname }} {{ user.name }}! </h2>
 
@@ -25,7 +26,7 @@
         <li class="list-group-item">Getekende overeenkomst: {{ user.signedagreement }}</li>
     </ul>
 
-    <p><a href="{{ path('login') }}">Ga Terug</a></p>
+    <p><a id="back-link" href="{{ path('login') }}">Ga Terug</a></p>
 
 
 {% endblock %}

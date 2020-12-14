@@ -14,3 +14,6 @@ profile:
   path: /profile
   controller: App\Controller\SecurityController::profile
 
+eul_submit:
+  path: /eul_submit
+  controller: App\Controller\SecurityController::eulSubmit
